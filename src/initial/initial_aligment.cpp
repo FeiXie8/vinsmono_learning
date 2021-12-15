@@ -54,7 +54,7 @@ MatrixXd TangentBasis(Vector3d &g0)
 
 void RefineGravity(map<double, ImageFrame> &all_image_frame, Vector3d &g, VectorXd &x)
 {
-    Vector3d g0 = g.normalized() * G.norm();
+    Vector3d g0 = g.normalized() * G.norm();  //初始时刻相机坐标系下的重力向量，在此处作为已知量
     Vector3d lx, ly;
     //VectorXd x;
     int all_frame_count = all_image_frame.size();
@@ -176,7 +176,7 @@ bool LinearAlignment(map<double, ImageFrame> &all_image_frame, Vector3d &g, Vect
     }
     A = A * 1000.0;
     b = b * 1000.0;
-    x = A.ldlt().solve(b);
+    x = A.ldlt().solve(b);   //每个时刻imu坐标系下的速度，gc0以及尺度s
     double s = x(n_state - 1) / 100.0;
     // ROS_DEBUG("estimated scale: %f", s);
     g = x.segment<3>(n_state - 4);

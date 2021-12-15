@@ -286,7 +286,7 @@ vector<pair<vector<ImuConstPtr>, ImgConstPtr>> System::getMeasurements()
             return measurements;
         }
 
-        if (!(imu_buf.back()->header > feature_buf.front()->header + estimator.td))
+        if (!(imu_buf.back()->header > feature_buf.front()->header + estimator.td)) //如果最新的imu都比最老的图像时间更早，就应该等待imu数据到来
         {
             // cerr << "wait for imu, only should happen at the beginning sum_of_wait: " 
             //     << sum_of_wait << endl;
@@ -294,7 +294,7 @@ vector<pair<vector<ImuConstPtr>, ImgConstPtr>> System::getMeasurements()
             return measurements;
         }
 
-        if (!(imu_buf.front()->header < feature_buf.front()->header + estimator.td))
+        if (!(imu_buf.front()->header < feature_buf.front()->header + estimator.td)) //第一个imu的数据时间戳应该小于第一个图像的时间戳
         {
             cerr << "throw img, only should happen at the beginning" << endl;
             feature_buf.pop();
@@ -376,8 +376,8 @@ void System::ProcessBackEnd()
             for (auto &imu_msg : measurement.first)
             {
                 double t = imu_msg->header;
-                double img_t = imu_msg->header + estimator.td;
-                if (t <= img_t)
+                double img_t = img_msg->header + estimator.td;
+                if (t <= img_t) //IMU的时间戳小于初始的图像帧时间戳
                 {
                     if (current_time < 0)
                         current_time = t;

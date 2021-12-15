@@ -17,7 +17,7 @@ struct SFMFeature
 {
     bool state;
     int id;
-    vector<pair<int,Vector2d>> observation;
+    vector<pair<int,Vector2d>> observation;   //一个路标点由多个连续的图像观测到
     double position[3];
     double depth;
 };
@@ -62,6 +62,7 @@ public:
 			  vector<SFMFeature> &sfm_f, map<int, Vector3d> &sfm_tracked_points);
 
 private:
+	// PnP得到当前帧相对于第l帧的位姿
 	bool solveFrameByPnP(Matrix3d &R_initial, Vector3d &P_initial, int i, vector<SFMFeature> &sfm_f);
 
 	void triangulatePoint(Eigen::Matrix<double, 3, 4> &Pose0, Eigen::Matrix<double, 3, 4> &Pose1,

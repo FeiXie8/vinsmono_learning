@@ -41,7 +41,9 @@ int FeatureManager::getFeatureCount()
     return cnt;
 }
 
-
+/**
+ * @brief 返回次新帧和次次新帧是否有足够大的视差，是否不应该边缘化次新帧，并向feature里添加该feature
+ */
 bool FeatureManager::addFeatureCheckParallax(int frame_count, const map<int, vector<pair<int, Eigen::Matrix<double, 7, 1>>>> &image, double td)
 {
     //ROS_DEBUG("input feature: %d", (int)image.size());
@@ -57,7 +59,7 @@ bool FeatureManager::addFeatureCheckParallax(int frame_count, const map<int, vec
         auto it = find_if(feature.begin(), feature.end(), [feature_id](const FeaturePerId &it)
                           {
             return it.feature_id == feature_id;
-                          });
+                          }); 
 
         if (it == feature.end())
         {
@@ -72,7 +74,7 @@ bool FeatureManager::addFeatureCheckParallax(int frame_count, const map<int, vec
     }
 
     if (frame_count < 2 || last_track_num < 20)
-        return true;
+        return true;      //如果跟踪质量差，说明最近两帧差别较大
 
     for (auto &it_per_id : feature)
     {
@@ -117,6 +119,7 @@ void FeatureManager::debugShow()
     }
 }
 
+//得到frame_count_l与frame_count_r两帧之间的对应特征点3D坐标
 vector<pair<Vector3d, Vector3d>> FeatureManager::getCorresponding(int frame_count_l, int frame_count_r)
 {
     vector<pair<Vector3d, Vector3d>> corres;

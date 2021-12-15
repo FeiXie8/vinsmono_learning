@@ -109,11 +109,18 @@ void GlobalSFM::triangulateTwoFrames(int frame0, Eigen::Matrix<double, 3, 4> &Po
 	}
 }
 
-// 	 q w_R_cam t w_R_cam
-//  c_rotation cam_R_w 
-//  c_translation cam_R_w
-// relative_q[i][j]  j_q_i
-// relative_t[i][j]  j_t_ji  (j < i)
+/**
+ * @brief   纯视觉sfm，求解窗口中的所有图像帧相对于第l帧的位姿和三角化的特征点坐标
+ * @param[in]   frame_num	窗口总帧数（frame_count + 1）
+ * @param[out]  q 	窗口内图像帧的旋转四元数q（相对于第l帧）Q[frame_count + 1]
+ * @param[out]	T 	窗口内图像帧的平移向量T（相对于第l帧）
+ * @param[in]  	l 	第l帧
+ * @param[in]  	relative_R	当前帧到第l帧的旋转矩阵
+ * @param[in]  	relative_T 	当前帧到第l帧的平移向量
+ * @param[in]  	sfm_f		所有特征点
+ * @param[out]  sfm_tracked_points 所有在sfm中三角化的特征点ID和坐标
+ * @return  bool true:sfm求解成功
+*/
 bool GlobalSFM::construct(int frame_num, Quaterniond* q, Vector3d* T, int l,
 			  const Matrix3d relative_R, const Vector3d relative_T,
 			  vector<SFMFeature> &sfm_f, map<int, Vector3d> &sfm_tracked_points)
@@ -138,9 +145,9 @@ bool GlobalSFM::construct(int frame_num, Quaterniond* q, Vector3d* T, int l,
 	Quaterniond c_Quat[frame_num];
 	double c_rotation[frame_num][4];
 	double c_translation[frame_num][3];
-	Eigen::Matrix<double, 3, 4> Pose[frame_num];
+	Eigen::Matrix<double, 3, 4> Pose[frame_num]; // 位姿3*4，第l帧到每一帧变换矩阵
 
-	c_Quat[l] = q[l].inverse();
+	c_Quat[l] = q[l].inverse();   //从l帧到每一帧
 	c_Rotation[l] = c_Quat[l].toRotationMatrix();
 	c_Translation[l] = -1 * (c_Rotation[l] * T[l]);
 	Pose[l].block<3, 3>(0, 0) = c_Rotation[l];
@@ -172,7 +179,7 @@ bool GlobalSFM::construct(int frame_num, Quaterniond* q, Vector3d* T, int l,
 		}
 
 		// triangulate point based on the solve pnp result
-		triangulateTwoFrames(i, Pose[i], frame_num - 1, Pose[frame_num - 1], sfm_f);
+		triangulateTwoFrames(i, Pose[i], frame_num - 1, Pose[frame_num - 1], sfm_f); //循环第一次会三角化l和当前帧
 	}
 	//3: triangulate l-----l+1 l+2 ... frame_num -2
 	for (int i = l + 1; i < frame_num - 1; i++)

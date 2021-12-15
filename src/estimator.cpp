@@ -77,9 +77,9 @@ void Estimator::clearState()
 
     if (tmp_pre_integration != nullptr)
         delete tmp_pre_integration;
-    
+
     tmp_pre_integration = nullptr;
-    
+
     last_marginalization_parameter_blocks.clear();
 
     f_manager.clearState();
@@ -128,11 +128,12 @@ void Estimator::processIMU(double dt, const Vector3d &linear_acceleration, const
     gyr_0 = angular_velocity;
 }
 
+//image第一层是featureid
 void Estimator::processImage(const map<int, vector<pair<int, Eigen::Matrix<double, 7, 1>>>> &image, double header)
 {
     //ROS_DEBUG("new image coming ------------------------------------------");
     // cout << "Adding feature points: " << image.size()<<endl;
-    if (f_manager.addFeatureCheckParallax(frame_count, image, td))
+    if (f_manager.addFeatureCheckParallax(frame_count, image, td)) //关键帧在后续会选取倒数第二帧，因此这一步如果倒数第二帧和倒数第三帧视差小了，就把倒数第二帧给边缘化了
         marginalization_flag = MARGIN_OLD;
     else
         marginalization_flag = MARGIN_SECOND_NEW;
@@ -141,7 +142,7 @@ void Estimator::processImage(const map<int, vector<pair<int, Eigen::Matrix<doubl
     //ROS_DEBUG("%s", marginalization_flag ? "Non-keyframe" : "Keyframe");
     //ROS_DEBUG("Solving %d", frame_count);
     // cout << "number of feature: " << f_manager.getFeatureCount()<<endl;
-    Headers[frame_count] = header;
+    Headers[frame_count] = header; //headers的最后一个值一直是当前最新帧的时间戳
 
     ImageFrame imageframe(image, header);
     imageframe.pre_integration = tmp_pre_integration;
@@ -160,7 +161,7 @@ void Estimator::processImage(const map<int, vector<pair<int, Eigen::Matrix<doubl
             {
                 // ROS_WARN("initial extrinsic rotation calib success");
                 // ROS_WARN_STREAM("initial extrinsic rotation: " << endl
-                                                            //    << calib_ric);
+                //    << calib_ric);
                 ric[0] = calib_ric;
                 RIC[0] = calib_ric;
                 ESTIMATE_EXTRINSIC = 1;
@@ -263,7 +264,7 @@ bool Estimator::initialStructure()
     Quaterniond Q[frame_count + 1];
     Vector3d T[frame_count + 1];
     map<int, Vector3d> sfm_tracked_points;
-    vector<SFMFeature> sfm_f;
+    vector<SFMFeature> sfm_f; // SFMFeature三角化状态（bool）、特征点索引、平面观测、位置坐标、深度
     for (auto &it_per_id : f_manager.feature)
     {
         int imu_j = it_per_id.start_frame - 1;
@@ -304,7 +305,7 @@ bool Estimator::initialStructure()
     {
         // provide initial guess
         cv::Mat r, rvec, t, D, tmp_r;
-        if ((frame_it->first) == Headers[i])
+        if ((frame_it->first) == Headers[i]) //Headers是滑动窗口里帧的时间戳，而frame_it是所有的帧，这里判断如果是滑动窗口里的帧，因为已经优化过，直接赋值就行
         {
             frame_it->second.is_key_frame = true;
             frame_it->second.R = Q[i].toRotationMatrix() * RIC[0].transpose();
@@ -312,7 +313,7 @@ bool Estimator::initialStructure()
             i++;
             continue;
         }
-        if ((frame_it->first) > Headers[i])
+        if ((frame_it->first) > Headers[i]) //这里好像进不来，因为all_image包含了Heads，这样frame_t只有可能走的比Headers慢
         {
             i++;
         }
@@ -377,7 +378,7 @@ bool Estimator::visualInitialAlign()
     TicToc t_g;
     VectorXd x;
     //solve scale
-    bool result = VisualIMUAlignment(all_image_frame, Bgs, g, x);
+    bool result = VisualIMUAlignment(all_image_frame, Bgs, g, x); //得到优化后的gc0以及速度
     if (!result)
     {
         //ROS_DEBUG("solve g failed!");
@@ -434,7 +435,7 @@ bool Estimator::visualInitialAlign()
 
     Matrix3d R0 = Utility::g2R(g);
     double yaw = Utility::R2ypr(R0 * Rs[0]).x();
-    R0 = Utility::ypr2R(Eigen::Vector3d{-yaw, 0, 0}) * R0;
+    R0 = Utility::ypr2R(Eigen::Vector3d{-yaw, 0, 0}) * R0;  //对齐的话与yaw无关，只需旋转pitch和row就能对齐
     g = R0 * g;
     //Matrix3d rot_diff = R0 * Rs[0].transpose();
     Matrix3d rot_diff = R0;
@@ -450,25 +451,39 @@ bool Estimator::visualInitialAlign()
     return true;
 }
 
+/**
+ * @brief   返回滑动窗口中第一个满足视差的帧，为l帧，以及RT,可以三角化。
+ * @Description    判断每帧到窗口最后一帧对应特征点的平均视差是否大于30
+                solveRelativeRT()通过基础矩阵计算当前帧与第l帧之间的R和T,并判断内点数目是否足够
+ * @param[out]   relative_R 滑动窗口最后帧到第l帧之间的旋转矩阵R
+ * @param[out]   relative_T 滑动窗口最后帧到第l帧之间的平移向量T
+ * @param[out]   L 从第一帧开始到滑动窗口中第一个满足视差足够的帧，这里的l帧之后作为参考帧做全局SFM用
+ * @return  bool 1:可以进行初始化;0:不满足初始化条件
+*/
 bool Estimator::relativePose(Matrix3d &relative_R, Vector3d &relative_T, int &l)
 {
     // find previous frame which contians enough correspondance and parallex with newest frame
     for (int i = 0; i < WINDOW_SIZE; i++)
     {
+        // 寻找第i帧到窗口最后一帧的对应特征点
         vector<pair<Vector3d, Vector3d>> corres;
-        corres = f_manager.getCorresponding(i, WINDOW_SIZE);
+        corres = f_manager.getCorresponding(i, WINDOW_SIZE); // 先得到第i帧和最后一帧的特征匹配
         if (corres.size() > 20)
         {
+            // 2. 计算平均视差>30
             double sum_parallax = 0;
             double average_parallax;
             for (int j = 0; j < int(corres.size()); j++)
             {
+                //第j个对应点在第i帧和最后一帧的(x,y)
                 Vector2d pts_0(corres[j].first(0), corres[j].first(1));
                 Vector2d pts_1(corres[j].second(0), corres[j].second(1));
                 double parallax = (pts_0 - pts_1).norm();
                 sum_parallax = sum_parallax + parallax;
             }
             average_parallax = 1.0 * sum_parallax / int(corres.size());
+            //判断是否满足初始化条件：视差>30和内点数满足要求
+            //同时返回窗口最后一帧（当前帧）到第l帧（参考帧）的Rt
             if (average_parallax * 460 > 30 && m_estimator.solveRelativeRT(corres, relative_R, relative_T))
             {
                 l = i;
@@ -488,7 +503,7 @@ void Estimator::solveOdometry()
     {
         TicToc t_tri;
         f_manager.triangulate(Ps, tic, ric);
-        //cout << "triangulation costs : " << t_tri.toc() << endl;        
+        //cout << "triangulation costs : " << t_tri.toc() << endl;
         backendOptimization();
     }
 }
@@ -726,7 +741,7 @@ void Estimator::MargOldFrame()
 
     // IMU
     {
-        if (pre_integrations[1]->sum_dt < 10.0) 
+        if (pre_integrations[1]->sum_dt < 10.0)
         {
             std::shared_ptr<backend::EdgeImu> imuEdge(new backend::EdgeImu(pre_integrations[1]));
             std::vector<std::shared_ptr<backend::Vertex>> edge_vertex;
@@ -745,7 +760,7 @@ void Estimator::MargOldFrame()
         // 遍历每一个特征
         for (auto &it_per_id : f_manager.feature)
         {
-            it_per_id.used_num = it_per_id.feature_per_frame.size();  //特征出现的次数
+            it_per_id.used_num = it_per_id.feature_per_frame.size(); //特征出现的次数
             if (!(it_per_id.used_num >= 2 && it_per_id.start_frame < WINDOW_SIZE - 2))
                 continue;
 
@@ -753,14 +768,14 @@ void Estimator::MargOldFrame()
 
             int imu_i = it_per_id.start_frame, imu_j = imu_i - 1;
             if (imu_i != 0)
-                continue;   //计算的是当前帧和第一帧的重投影误差，排除那些第一帧没有观察到的特征点
+                continue; //计算的是当前帧和第一帧的重投影误差，排除那些第一帧没有观察到的特征点
 
             Vector3d pts_i = it_per_id.feature_per_frame[0].point; //该点三维坐标
 
             //保存路标点在窗口第一帧的逆深度
             shared_ptr<backend::VertexInverseDepth> verterxPoint(new backend::VertexInverseDepth());
             VecX inv_d(1);
-            inv_d << para_Feature[feature_index][0]; 
+            inv_d << para_Feature[feature_index][0];
             verterxPoint->SetParameters(inv_d);
             problem.AddVertex(verterxPoint);
 
@@ -918,7 +933,8 @@ void Estimator::problemSolve()
             // TODO:: set Hessian prior to zero
             vertexExt->SetFixed();
         }
-        else{
+        else
+        {
             //ROS_DEBUG("estimate extinsic param");
         }
         problem.AddVertex(vertexExt);
@@ -1083,7 +1099,7 @@ void Estimator::backendOptimization()
     TicToc t_whole_marginalization;
     if (marginalization_flag == MARGIN_OLD)
     {
-        vector2double();      // 系统数据类型转换：将向量变成double数组指针的形式
+        vector2double(); // 系统数据类型转换：将向量变成double数组指针的形式
 
         MargOldFrame();
 
@@ -1133,9 +1149,7 @@ void Estimator::backendOptimization()
             }
         }
     }
-    
 }
-
 
 void Estimator::slideWindow()
 {

@@ -18,7 +18,7 @@ public:
     {
         points = _points;
     };
-    map<int, vector<pair<int, Eigen::Matrix<double, 7, 1>>>> points;
+    map<int, vector<pair<int, Eigen::Matrix<double, 7, 1>>>> points;  // 图像特征点points，map第一索引是camera_id，内部第二层索引是feaure_id  
     double t;
     Matrix3d R;
     Vector3d T;
